@@ -97,7 +97,7 @@ async function enter(c,silent){
 
 function sub(c){
   code=c;localStorage.ttCode=c;room={meta:null,players:{},rounds:null,scores:{},answers:{}};lastKey='';curI=-1;
-  const on=(p,fn)=>{const r=db.ref(`rooms/${c}/${p}`);r.on('value',s=>{fn(s.val());route()});refs.push(r)};
+  const on=(p,fn)=>{const r=db.ref(`rooms/${c}/${p}`);r.on('value',s=>{fn(s.val());Promise.resolve().then(route)});refs.push(r)};
   on('meta',v=>{if(!v&&room.meta)return leave(true);room.meta=v});
   on('players',v=>{v=v||{};if(room.seen)notify(room.players,v);room.seen=1;room.players=v});
   on('rounds',v=>room.rounds=v);on('scores',v=>room.scores=v||{});on('answers',v=>room.answers=v||{});

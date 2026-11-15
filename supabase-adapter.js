@@ -18,12 +18,52 @@
   function watchRoom(code, handler) {
     let entry = roomWatchers.get(code);
     if (!entry) {
-      entry = { handlers: new Set(), channel: null };
-      entry.channel = client.channel('room-' + code).on('postgres_changes', {event:'*', schema:'public', table:'game_rooms', filter:`code=eq.${code}`}, () => { for (const fn of [...entry.handlers]) fn(); }).subscribe();
+      entry = { handlers: new Set(), channel: null, running: false, pending: false, timer: null };
+      const refresh = async () => {
+        if (entry.running) { entry.pending = true; return; }
+        entry.running = true;
+        try {
+          do {
+            entry.pending = false;
+            const { data, error } = await client.from('game_rooms').select('data').eq('code', code).maybeSingle();
+            if (error) throw error;
+            const value = data ? data.data : null;
+            for (const fn of [...entry.handlers]) {
+              try { fn(value); } catch (e) { console.error('Error actualizando sala:', e); }
+            }
+          } while (entry.pending);
+        } catch (e) {
+          console.error('No se pudo actualizar la sala:', e);
+        } finally {
+          entry.running = false;
+        }
+      };
+      const schedule = () => {
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.timer = setTimeout(() => { entry.timer = null; refresh(); }, 60);
+      };
+      entry.refresh = refresh;
+      entry.channel = client.channel('room-' + code)
+        .on('postgres_changes', {event:'*', schema:'public', table:'game_rooms', filter:`code=eq.${code}`}, schedule)
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') schedule();
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('Realtime de Supabase:', status);
+            schedule();
+          }
+        });
       roomWatchers.set(code, entry);
     }
     entry.handlers.add(handler);
-    return () => { entry.handlers.delete(handler); if (!entry.handlers.size) { client.removeChannel(entry.channel); roomWatchers.delete(code); } };
+    entry.refresh();
+    return () => {
+      entry.handlers.delete(handler);
+      if (!entry.handlers.size) {
+        if (entry.timer) clearTimeout(entry.timer);
+        client.removeChannel(entry.channel);
+        roomWatchers.delete(code);
+      }
+    };
   }
   class Ref {
     constructor(path){this.path=parts(path);this.handlers=[];this.unwatch=null;this.parentCode=this.path[0]==='rooms'?this.path[1]:null;}
@@ -31,7 +71,14 @@
     async _row(){if(!this.parentCode)return null;const {data,error}=await client.from('game_rooms').select('data').eq('code',this.parentCode).maybeSingle();if(error)throw error;return data?data.data:null}
     async _write(next){const code=this.parentCode;if(!code)throw new Error('Ruta no válida');const current=await this._row();const payload={code,data:resolve(next),updated_at:new Date().toISOString()};let q=current===null?client.from('game_rooms').insert(payload):client.from('game_rooms').update({data:payload.data,updated_at:payload.updated_at}).eq('code',code);const {error}=await q;if(error)throw error;return next;}
     async once(){if(this.path[0]==='.info')return new Snap(this.path[1]==='connected'?true:0);const row=await this._row();return new Snap(getAt(row,this.path.slice(2)));}
-    on(event,fn){if(event!=='value')return this;const deliver=async()=>{try{fn(await this.once())}catch(e){console.error(e)}};this.handlers.push(fn);deliver();if(this.parentCode&&!this.unwatch)this.unwatch=watchRoom(this.parentCode,deliver);return this;}
+    on(event,fn){
+      if(event!=='value')return this;
+      const deliver = value => { try { fn(new Snap(getAt(value, this.path.slice(2)))); } catch(e) { console.error(e); } };
+      this.handlers.push(fn);
+      if(this.parentCode&&!this.unwatch)this.unwatch=watchRoom(this.parentCode,deliver);
+      else if(!this.parentCode)this.once().then(fn).catch(console.error);
+      return this;
+    }
     off(){this.handlers=[];if(this.unwatch){this.unwatch();this.unwatch=null;}return this;}
     async _patch(path,value,remove=false){
       const {data,error}=await client.rpc('patch_game_room',{p_code:this.parentCode,p_path:path.map(String),p_value:remove?null:resolve(value),p_delete:remove});
