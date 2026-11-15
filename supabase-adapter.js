@@ -40,20 +40,23 @@
     onDisconnect(){return {set:async()=>{},cancel:async()=>{}}}
   }
   const db={ref:path=>new Ref(path)};
+  // Supabase identifica al usuario con `id`; la lógica original del juego
+  // espera la propiedad Firebase `uid`. Adaptamos el objeto para mantener compatibilidad.
+  const asFirebaseUser = user => user ? { ...user, uid: user.id } : null;
   window.firebase={
     database:()=>db,
     auth:()=>({
-      // Subscribe BEFORE reading the current session so a fast anonymous sign-in
-      // cannot be missed between getSession() and onAuthStateChange().
       onAuthStateChanged:cb=>{
         let active=true;
-        const {data:{subscription}}=client.auth.onAuthStateChange((_event,session)=>{
-          if(active) cb(session?.user||null);
+        const { data: listener } = client.auth.onAuthStateChange((_event, session)=>{
+          if(active) cb(asFirebaseUser(session?.user||null));
         });
         client.auth.getSession().then(({data,error})=>{
-          if(active && !error) cb(data.session?.user||null);
-        }).catch(error=>console.error('Supabase getSession:',error));
-        return ()=>{active=false;subscription.unsubscribe();};
+          if(!active)return;
+          if(error) console.error('Error al recuperar sesión de Supabase:',error);
+          cb(asFirebaseUser(data.session?.user||null));
+        }).catch(error=>console.error('Error al recuperar sesión de Supabase:',error));
+        return { data: { subscription: listener.subscription }, unsubscribe:()=>{active=false;listener.subscription.unsubscribe();} };
       },
       signInAnonymously:()=>client.auth.signInAnonymously()
     }),
