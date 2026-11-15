@@ -57,7 +57,7 @@ function init(){
   if(!ok)return;
   firebase.initializeApp();db=firebase.database();
   db.ref('.info/serverTimeOffset').on('value',s=>off=s.val()||0);
-  firebase.auth().onAuthStateChanged(u=>{if(!u)return;uid=u.uid;if(localStorage.ttCode&&!code)enter(localStorage.ttCode,true)});
+  firebase.auth().onAuthStateChanged(u=>{if(!u)return;uid=u.uid||u.id;if(!uid){console.error('Supabase autenticó al jugador sin id');return;}if(localStorage.ttCode&&!code)enter(localStorage.ttCode,true)});
   firebase.auth().signInAnonymously().catch(e=>toast('Error de acceso: '+e.message));
   setInterval(tick,250);
 }

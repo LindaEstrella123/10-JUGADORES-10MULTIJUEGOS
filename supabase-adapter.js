@@ -101,7 +101,7 @@
     onDisconnect(){return {set:async()=>{},cancel:async()=>{}}}
   }
   const db={ref:path=>new Ref(path)};
-  window.firebase={database:()=>db,auth:()=>({onAuthStateChanged:cb=>client.auth.getSession().then(({data})=>cb(data.session?.user||null)).then(()=>client.auth.onAuthStateChange((_e,s)=>cb(s?.user||null))),signInAnonymously:()=>client.auth.signInAnonymously()}),initializeApp:()=>{},databaseServerTimestamp:SERVER_TIMESTAMP};
+  window.firebase={database:()=>db,auth:()=>({onAuthStateChanged:cb=>{const emit=user=>cb(user?{...user,uid:user.id}:null);client.auth.getSession().then(({data,error})=>{if(error)console.error('Error recuperando sesión:',error);emit(data.session?.user||null);});const {data}=client.auth.onAuthStateChange((_event,session)=>emit(session?.user||null));return data.subscription;},signInAnonymously:()=>client.auth.signInAnonymously()}),initializeApp:()=>{},databaseServerTimestamp:SERVER_TIMESTAMP};
   window.firebase.database.ServerValue={TIMESTAMP:SERVER_TIMESTAMP};
   window.__supabaseClient=client;
 })();
