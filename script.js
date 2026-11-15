@@ -209,10 +209,14 @@ async function submit(ans){
   if(r>T_PLAY+500){locked=false;return}
   const ok=norm(ans)===norm(q.a),pts=ok?Math.round((100+100*Math.max(0,1-r/T_PLAY))*(q.t==='final'?2:1)):0;
   try{
-    await db.ref(`rooms/${code}/answers/${g}/${i}/${uid}`).set({ok,pts});
-    if(pts)await db.ref(`rooms/${code}/scores/${g}/${uid}`).transaction(v=>(v||0)+pts);
+    const result=await db.ref(`rooms/${code}`).submitAnswer(g,i,uid,{ok,pts},pts);
+    if(!result.committed){locked=true;toast('Tu respuesta ya estaba registrada');return;}
     beep(ok?880:200,.2);if(ok)float('+'+pts);
-  }catch(e){toast('No se pudo enviar la respuesta')}
-  lastKey='';
+    lastKey='';
+  }catch(e){
+    locked=false;
+    toast('No se pudo enviar. Puedes intentarlo otra vez.');
+    const body=$('#gBody');if(body)body.dataset.done='';
+  }
 }
 init();

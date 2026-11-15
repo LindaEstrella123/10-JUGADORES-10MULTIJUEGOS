@@ -38,3 +38,15 @@ Esta versión usa una política inicial abierta para facilitar la prueba de las 
 - Realtime notifica cambios en la fila de cada sala.
 - El estado completo de cada sala se almacena como JSON en `game_rooms.data`.
 - La sincronización está pensada para partidas casuales y salas pequeñas. La escritura del estado completo puede producir conflictos si varias personas escriben simultáneamente; para producción se recomienda normalizar jugadores/respuestas en tablas y validar acciones en servidor.
+
+
+## Actualización de sincronización (noviembre 2026)
+
+Para corregir respuestas que no se guardan, puntos que se pisan y el podio inestable:
+
+1. Ejecuta una sola vez el archivo `supabase-fix-concurrency.sql` en Supabase > SQL Editor.
+2. Sube a GitHub los archivos actualizados `script.js` y `supabase-adapter.js`.
+3. No borres ni reemplaces la tabla `game_rooms` ni los datos existentes.
+4. Recarga el juego con Ctrl+F5 en todos los dispositivos.
+
+La migración registra cada respuesta y su puntuación en una sola transacción de base de datos, evitando duplicados por jugador y ronda.

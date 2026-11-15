@@ -33,36 +33,28 @@
     async once(){if(this.path[0]==='.info')return new Snap(this.path[1]==='connected'?true:0);const row=await this._row();return new Snap(getAt(row,this.path.slice(2)));}
     on(event,fn){if(event!=='value')return this;const deliver=async()=>{try{fn(await this.once())}catch(e){console.error(e)}};this.handlers.push(fn);deliver();if(this.parentCode&&!this.unwatch)this.unwatch=watchRoom(this.parentCode,deliver);return this;}
     off(){this.handlers=[];if(this.unwatch){this.unwatch();this.unwatch=null;}return this;}
-    async set(value){const row=await this._row()||{};const next=setAt(row,this.path.slice(2),resolve(value));await this._write(next);return {committed:true};}
-    async update(values){const row=await this._row()||{};let next=clone(row);for(const [k,v] of Object.entries(values)){next=setAt(next,parts(k),resolve(v));}await this._write(next);return {committed:true};}
+    async _patch(path,value,remove=false){
+      const {data,error}=await client.rpc('patch_game_room',{p_code:this.parentCode,p_path:path.map(String),p_value:remove?null:resolve(value),p_delete:remove});
+      if(error)throw error;return data;
+    }
+    async set(value){await this._patch(this.path.slice(2),value,value===null);return {committed:true};}
+    async update(values){
+      for(const [k,v] of Object.entries(values)){
+        const path=[...this.path.slice(2),...parts(k)];
+        await this._patch(path,v,v===null);
+      }
+      return {committed:true};
+    }
     async remove(){return this.set(null)}
-    async transaction(fn){const row=await this._row()||{};const path=this.path.slice(2);const old=getAt(row,path);const value=fn(clone(old));if(value===undefined)return {committed:false,snapshot:new Snap(old)};const next=setAt(clone(row),path,resolve(value));await this._write(next);return {committed:true,snapshot:new Snap(value)};}
+    async submitAnswer(game,round,uid,answer,points){
+      const {data,error}=await client.rpc('submit_game_answer',{p_code:this.parentCode,p_game:String(game),p_round:String(round),p_uid:String(uid),p_answer:resolve(answer),p_points:Number(points)});
+      if(error)throw error;return {committed:!!data};
+    }
+    async transaction(fn){const row=await this._row()||{};const path=this.path.slice(2);const old=getAt(row,path);const value=fn(clone(old));if(value===undefined)return {committed:false,snapshot:new Snap(old)};await this._patch(path,value,value===null);return {committed:true,snapshot:new Snap(value)};}
     onDisconnect(){return {set:async()=>{},cancel:async()=>{}}}
   }
   const db={ref:path=>new Ref(path)};
-  // Supabase identifica al usuario con `id`; la lógica original del juego
-  // espera la propiedad Firebase `uid`. Adaptamos el objeto para mantener compatibilidad.
-  const asFirebaseUser = user => user ? { ...user, uid: user.id } : null;
-  window.firebase={
-    database:()=>db,
-    auth:()=>({
-      onAuthStateChanged:cb=>{
-        let active=true;
-        const { data: listener } = client.auth.onAuthStateChange((_event, session)=>{
-          if(active) cb(asFirebaseUser(session?.user||null));
-        });
-        client.auth.getSession().then(({data,error})=>{
-          if(!active)return;
-          if(error) console.error('Error al recuperar sesión de Supabase:',error);
-          cb(asFirebaseUser(data.session?.user||null));
-        }).catch(error=>console.error('Error al recuperar sesión de Supabase:',error));
-        return { data: { subscription: listener.subscription }, unsubscribe:()=>{active=false;listener.subscription.unsubscribe();} };
-      },
-      signInAnonymously:()=>client.auth.signInAnonymously()
-    }),
-    initializeApp:()=>{},
-    databaseServerTimestamp:SERVER_TIMESTAMP
-  };
+  window.firebase={database:()=>db,auth:()=>({onAuthStateChanged:cb=>client.auth.getSession().then(({data})=>cb(data.session?.user||null)).then(()=>client.auth.onAuthStateChange((_e,s)=>cb(s?.user||null))),signInAnonymously:()=>client.auth.signInAnonymously()}),initializeApp:()=>{},databaseServerTimestamp:SERVER_TIMESTAMP};
   window.firebase.database.ServerValue={TIMESTAMP:SERVER_TIMESTAMP};
   window.__supabaseClient=client;
 })();
